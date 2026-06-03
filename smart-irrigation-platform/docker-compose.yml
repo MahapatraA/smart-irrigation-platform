@@ -1,0 +1,98 @@
+version: '3.9'
+
+services:
+
+  # ─── Application ────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      target: production
+    container_name: irrigation_app
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      MONGODB_URI: mongodb://mongo:27017/smart_irrigation
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      LOG_LEVEL: info
+      MOISTURE_MIN: 5
+      MOISTURE_MAX: 95
+      TEMPERATURE_MIN: -10
+      TEMPERATURE_MAX: 60
+      WATER_FLOW_MIN: 0
+      MISSING_READING_THRESHOLD_MINUTES: 2
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX_REQUESTS: 100
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - irrigation_net
+
+  # ─── MongoDB ────────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: irrigation_mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - irrigation_net
+
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: irrigation_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - irrigation_net
+
+  # ─── Mongo Express (dev only — remove in production) ────────────────────────
+  mongo-express:
+    image: mongo-express:1
+    container_name: irrigation_mongo_ui
+    restart: unless-stopped
+    ports:
+      - '8081:8081'
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - irrigation_net
+    profiles:
+      - dev   # only starts with: docker compose --profile dev up
+
+volumes:
+  mongo_data:
+  redis_data:
+
+networks:
+  irrigation_net:
+    driver: bridge
